@@ -1,0 +1,121 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Android SDK Environment
+      uses: android-actions/setup-android@v3
+
+    - name: Create Minimal WebView App
+      run: |
+        mkdir -p android-app/app/src/main/java/com/henix/app
+        mkdir -p android-app/app/src/main/res/values
+        mkdir -p android-app/app/src/main/res/mipmap-hdpi
+
+        cat << 'EOF' > android-app/build.gradle
+        buildscript {
+            repositories {
+                google()
+                mavenCentral()
+            }
+            dependencies {
+                classpath 'com.android.tools.build:gradle:7.4.2'
+            }
+        }
+        allprojects {
+            repositories {
+                google()
+                mavenCentral()
+            }
+        }
+        EOF
+
+        echo "include ':app'" > android-app/settings.gradle
+
+        cat << 'EOF' > android-app/app/build.gradle
+        plugins {
+            id 'com.android.application'
+        }
+        android {
+            namespace 'com.henix.app'
+            compileSdk 33
+            defaultConfig {
+                applicationId "com.henix.app"
+                minSdk 21
+                targetSdk 33
+                versionCode 1
+                versionName "1.0"
+            }
+        }
+        dependencies {
+            implementation 'androidx.appcompat:appcompat:1.6.1'
+        }
+        EOF
+
+        cat << 'EOF' > android-app/app/src/main/AndroidManifest.xml
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+            package="com.henix.app">
+            <uses-permission android:name="android.permission.INTERNET" />
+            <application
+                android:label="Henix"
+                android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                <activity
+                    android:name=".MainActivity"
+                    android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+
+        cat << 'EOF' > android-app/app/src/main/java/com/henix.app/MainActivity.java
+        package com.henix.app;
+        import android.os.Bundle;
+        import android.webkit.WebView;
+        import android.webkit.WebViewClient;
+        import androidx.appcompat.app.AppCompatActivity;
+
+        public class MainActivity extends AppCompatActivity {
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+                super.onCreate(savedInstanceState);
+                WebView webView = new WebView(this);
+                webView.getSettings().setJavaScriptEnabled(true);
+                webView.getSettings().setDomStorageEnabled(true);
+                webView.setWebViewClient(new WebViewClient());
+                webView.loadUrl("https://henix-telegram-streamer.onrender.com");
+                setContentView(webView);
+            }
+        }
+        EOF
+
+    - name: Compile and Build APK
+      run: |
+        cd android-app
+        yes | sdkmanager --licenses || true
+        gradle wrapper
+        ./gradlew assembleDebug --no-daemon
+
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Henix-APK
+        path: android-app/app/build/outputs/apk/debug/*.apk
